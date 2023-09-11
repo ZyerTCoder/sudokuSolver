@@ -29,10 +29,22 @@ local floor = math.floor
 local time = os.time
 local ceil = math.ceil
 
-function Sudoku:iterateBoard()
-		local r = 1
-		local c = 0
-		return function()
+function Sudoku:pickSolvedFunc(inp)
+	if inp == "solved" then
+		return self.isCellSolved
+	elseif inp == "unsolved" then
+		return self.isCellUnsolved
+	else
+		return function() return true end
+	end
+end
+
+function Sudoku:iterateBoard(inp)
+	local solvedFunc = self:pickSolvedFunc(inp)
+	local r = 1
+	local c = 0
+	return function()
+		while true do
 			if c >= 9 then
 				c = 0
 				r = r + 1
@@ -41,9 +53,62 @@ function Sudoku:iterateBoard()
 				end
 			end
 			c = c + 1
-			return r, c
+			if solvedFunc(self, r, c) then
+				return r, c, inp ~= "new" and self[r][c]
+			end
 		end
 	end
+end
+
+function Sudoku:iterateRow(r, c, wantSolved)
+	local solvedFunc = self:pickSolvedFunc(wantSolved)
+	local cc = 0
+	return function()
+		while true do
+			cc = cc + 1
+			if cc > 9 then return end
+			if cc ~= c and solvedFunc(self, r, cc) then
+				return cc, self[r][cc]
+			end
+		end
+    end
+end
+
+function Sudoku:iterateCol(r, c, wantSolved)
+	local solvedFunc = self:pickSolvedFunc(wantSolved)
+	local rr = 0
+	return function()
+		while true do
+			rr = rr + 1
+			if rr > 9 then return end
+			if rr ~= r and solvedFunc(self, rr, c) then
+				return rr, self[rr][c]
+			end
+		end
+    end
+end
+
+function Sudoku:iterateSqr(r, c, wantSolved)
+	local solvedFunc = self:pickSolvedFunc(wantSolved)
+	local x, y = floor((r-1)/3%3), floor((c-1)/3%3)
+	local rr, cc = x*3+1, y*3 -- cc starts at -1 because loop starts by adding 1
+	local rmax, cmax = x*3+3, y*3+3
+	return function()
+		while true do
+			if cc >= cmax then
+				cc = cc - 3
+				rr = rr + 1
+				if rr > rmax then
+					return nil
+				end
+			end
+			cc = cc + 1
+			if (rr ~= r or cc ~= c) and solvedFunc(self, rr, cc) then
+				return rr, cc, self[rr][cc]
+			end
+		end
+    end
+end
 
 local function stringToMatrix(inp)
 	inp = string.gsub(inp, "%.", "0")
@@ -59,7 +124,7 @@ end
 
 local function matrixToString(board)
 	local s = ""
-	for i, j in Sudoku:iterateBoard() do
+	for i, j in Sudoku:iterateBoard("new") do -- this shouldnt require a "new" param but i cba figuring out why it does
 		if type(board[i][j]) == "table" then
 			board[i][j] = "."
 		end
@@ -74,7 +139,7 @@ function Sudoku:new(input)
 	o = stringToMatrix(input)
 	o.unsolvedCells = 81
 	-- populate possibilities and count solves cells
-	for i, j in Sudoku:iterateBoard() do
+	for i, j in Sudoku:iterateBoard("new") do
 		if o[i][j] == 0 then
 			o[i][j] = {1, 1, 1, 1, 1, 1, 1, 1, 1}
 		else
@@ -260,32 +325,29 @@ function Sudoku.isCellUnsolved(self, r, c)
 	return type(self[r][c]) == "table"
 end
 
-function Sudoku.clearBadPossibilities(self)
+function Sudoku.clearBadCandidates(self)
 	local didAnything = false
 	for r, c in self:iterateBoard() do
 		if self:isCellUnsolved(r, c) then
 			-- check row
-			for cc = 1, 9 do
-				if cc ~= c and self:isCellSolved(r, cc) and self[r][c][self[r][cc]] ~= 0 then
-					self[r][c][self[r][cc]] = 0
+			for _, cellVal in self:iterateRow(r, c, "solved") do
+				if self[r][c][cellVal] ~= 0 then
+					self[r][c][cellVal] = 0
 					didAnything = true
 				end
 			end
 			-- check col
-			for rr = 1, 9 do
-				if rr ~= r and self:isCellSolved(rr, c) and self[r][c][self[rr][c]] ~= 0 then
-					self[r][c][self[rr][c]] = 0
+			for _, cellVal in self:iterateCol(r, c, "solved") do
+				if self[r][c][cellVal] ~= 0 then
+					self[r][c][cellVal] = 0
 					didAnything = true
 				end
 			end
 			-- check box
-			local x, y = floor((r-1)/3%3), floor((c-1)/3%3)
-			for rr = x*3+1,x*3+3 do
-				for cc = y*3+1, y*3+3 do
-					if (rr ~= r or cc ~= c) and self:isCellSolved(rr, cc) and self[r][c][self[rr][cc]] ~= 0 then
-						self[r][c][self[rr][cc]] = 0
-						didAnything = true
-					end
+			for _, _, cellVal in self:iterateSqr(r, c, "solved") do
+				if self[r][c][cellVal] ~= 0 then
+					self[r][c][cellVal] = 0
+					didAnything = true
 				end
 			end
 		end
@@ -364,11 +426,31 @@ function Sudoku.hiddenSingles(self)
 	return didAnything
 end
 
+function Sudoku.nakedPairs(self)
+	--[[
+		if cell only has n options, check if any other cells in the same
+		row/col/sqr have the same options available
+
+		for set of 2 numbers
+		for set of 3 numbers
+		for set of 4 numbers
+
+			for cell in row
+			for cell in col
+			for cell in sqr
+
+				if another cell in same area has the exact same options then
+				this group forms a naked set and all other candidates in the
+				same area can be discarded
+
+	]]
+end
+
 function Sudoku.smartSolve(self)
 
 	local techniques = {
 		{tech = self.checkSolvedCells, name = "checkSolvedCells"}, -- naked singles
-		{tech = self.clearBadPossibilities, name = "clearBadPossibilities"},
+		{tech = self.clearBadCandidates, name = "clearBadCandidates"},
 		{tech = self.hiddenSingles, name = "hiddenSingles"},
 	}
 
