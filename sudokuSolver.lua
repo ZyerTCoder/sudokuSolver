@@ -327,28 +327,26 @@ end
 
 function Sudoku.clearBadCandidates(self)
 	local didAnything = false
-	for r, c in self:iterateBoard() do
-		if self:isCellUnsolved(r, c) then
-			-- check row
-			for _, cellVal in self:iterateRow(r, c, "solved") do
-				if self[r][c][cellVal] ~= 0 then
-					self[r][c][cellVal] = 0
-					didAnything = true
-				end
+	for r, c in self:iterateBoard("unsolved") do
+		-- check row
+		for _, cellVal in self:iterateRow(r, c, "solved") do
+			if self[r][c][cellVal] ~= 0 then
+				self[r][c][cellVal] = 0
+				didAnything = true
 			end
-			-- check col
-			for _, cellVal in self:iterateCol(r, c, "solved") do
-				if self[r][c][cellVal] ~= 0 then
-					self[r][c][cellVal] = 0
-					didAnything = true
-				end
+		end
+		-- check col
+		for _, cellVal in self:iterateCol(r, c, "solved") do
+			if self[r][c][cellVal] ~= 0 then
+				self[r][c][cellVal] = 0
+				didAnything = true
 			end
-			-- check box
-			for _, _, cellVal in self:iterateSqr(r, c, "solved") do
-				if self[r][c][cellVal] ~= 0 then
-					self[r][c][cellVal] = 0
-					didAnything = true
-				end
+		end
+		-- check box
+		for _, _, cellVal in self:iterateSqr(r, c, "solved") do
+			if self[r][c][cellVal] ~= 0 then
+				self[r][c][cellVal] = 0
+				didAnything = true
 			end
 		end
 	end
@@ -357,20 +355,18 @@ end
 
 function Sudoku.checkSolvedCells(self) -- naked single
 	local didAnything = false
-	for r, c in self:iterateBoard() do
-		if self:isCellUnsolved(r, c) then
-			local possibilities = 0
-			local index = 0
-			for i = 1, 9 do
-				if self[r][c][i] == 1 then
-					possibilities = possibilities + 1
-					index = i
-				end
+	for r, c in self:iterateBoard("unsolved") do
+		local possibilities = 0
+		local index = 0
+		for i = 1, 9 do
+			if self[r][c][i] == 1 then
+				possibilities = possibilities + 1
+				index = i
 			end
-			if possibilities == 1 then
-				self:setSolvedCell(r, c, index, "naked single")
-				didAnything = true
-			end
+		end
+		if possibilities == 1 then
+			self:setSolvedCell(r, c, index, "naked single")
+			didAnything = true
 		end
 	end
 	return didAnything
@@ -380,39 +376,34 @@ function Sudoku.hiddenSingles(self)
 	-- try to find some way of breaking out of the for n loop after the flag goes to false
 	local didAnything = false
 	local hiddenSinglesFound = {}
-	for r, c in self:iterateBoard() do
-		if self:isCellUnsolved(r, c) then
-			for n, v in pairs(self[r][c]) do
-				if v == 1 then
-					local uniqueIn = {row = true, col = true, box = true}
-					-- check row
-					for cc = 1, 9 do
-						if cc ~= c and self:isCellUnsolved(r,cc) and self[r][cc][n] == 1 then
-							uniqueIn.row = false
-						end
+	for r, c in self:iterateBoard("unsolved") do
+		for n, v in pairs(self[r][c]) do
+			if v == 1 then
+				local uniqueIn = {row = true, col = true, box = true}
+				-- check row
+				for _, cellCandidates in self:iterateRow(r, c, "unsolved") do
+					if cellCandidates[n] == 1 then
+						uniqueIn.row = false
 					end
-					-- check col
-					for rr = 1, 9 do
-						if rr ~= r and self:isCellUnsolved(rr,c) and self[rr][c][n] == 1 then
-							uniqueIn.col = false
-						end
+				end
+				-- check col
+				for _, cellCandidates in self:iterateCol(r, c, "unsolved") do
+					if cellCandidates[n] == 1 then
+						uniqueIn.col = false
 					end
-					-- check box
-					local x, y = floor((r-1)/3%3), floor((c-1)/3%3)
-					for rr = x*3+1,x*3+3 do
-						for cc = y*3+1, y*3+3 do
-							if (rr ~= r or cc ~= c) and self:isCellUnsolved(rr,cc) and self[rr][cc][n] == 1 then
-								uniqueIn.box = false
-							end
-						end
+				end
+				-- check box
+				for _, _, cellCandidates in self:iterateSqr(r, c, "unsolved") do
+					if cellCandidates[n] == 1 then
+						uniqueIn.box = false
 					end
-					local uniqueInStr = ""
-					for k, b in pairs(uniqueIn) do
-						if b then uniqueInStr = uniqueInStr .. k .. " " end
-					end
-					if uniqueInStr ~= "" then
-						hiddenSinglesFound[#hiddenSinglesFound+1] = {r, c, n, "hidden single: unique in " .. uniqueInStr}
-					end
+				end
+				local uniqueInStr = ""
+				for k, b in pairs(uniqueIn) do
+					if b then uniqueInStr = uniqueInStr .. k .. " " end
+				end
+				if uniqueInStr ~= "" then
+					hiddenSinglesFound[#hiddenSinglesFound+1] = {r, c, n, "hidden single: unique in " .. uniqueInStr}
 				end
 			end
 		end
