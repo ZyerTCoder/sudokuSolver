@@ -54,7 +54,7 @@ function Sudoku:iterateBoard(inp)
 			end
 			c = c + 1
 			if solvedFunc(self, r, c) then
-				return r, c, inp ~= "new" and self[r][c]
+				return r, c, inp ~= "new" and self[r][c] or {}
 			end
 		end
 	end
@@ -141,7 +141,7 @@ function Sudoku:new(input)
 	-- populate possibilities and count solves cells
 	for i, j in Sudoku:iterateBoard("new") do
 		if o[i][j] == 0 then
-			o[i][j] = {1, 1, 1, 1, 1, 1, 1, 1, 1}
+			o[i][j] = {true, true, true, true, true, true, true, true, true}
 		else
 			o.unsolvedCells = o.unsolvedCells - 1
 		end
@@ -187,7 +187,7 @@ function Sudoku.printSudokuLarge(board, preclear)
 			for j = 1, 9 do
 				if type(board[i][j]) == "table" then
 					for a = k, k+2 do
-						if board[i][j][a] ~= 0 then
+						if board[i][j][a] then
 							s = s .. a
 						else
 							s = s .. "."
@@ -250,66 +250,6 @@ function Sudoku.isSolvedIncorrectly(board)
 	end
 end
 
-function Sudoku.isGuessValid(board, guess, pos)
-	local x, y = pos.x, pos.y
-	if board[x][y] ~= 0 then return false end
-	for r = 1, 9 do
-		if board[r][y] == guess then return false end
-	end
-	for c = 1, 9 do
-		if board[x][c] == guess then return false end
-	end
-	local i, j = floor((x-1)/3%3), floor((y-1)/3%3)
-	for r = i*3+1,i*3+3 do
-		for c = j*3+1,j*3+3 do
-			if board[r][c] == guess then return false end
-		end
-	end
-	return true
-end
-
-function Sudoku.brute(input)
-	local t0 = time()
-	local board, origSudoku = stringToMatrix(input), stringToMatrix(input)
-	local loc = 0
-	local iterations = 0
-	while true do
-		-- printSudoku(board)
-		if loc>=81 then return board, iterations end
-		iterations = iterations + 1
-		if iterations%1000000 == 0 then
-			print(floor(iterations/1000000) .. " mil iterations, been running for " .. string.format("%i s (%.2f s per 10 mil)", time()-t0, (time()-t0)/(iterations/10000000)))
-		end
-		local x, y = floor((loc)/9)+1, loc%9+1
-		if x > 9 or x < 1 then
-			print("somethign wrong here")
-			print("loc", loc)
-			printSudoku(board)
-		end
-		if origSudoku[x][y] ~= 0 then
-			loc = loc + 1
-		else
-			local g = board[x][y] + 1
-			board[x][y] = 0
-			if g > 9 then
-				loc = loc - 1
-				if loc < 0 then error("Invalid board provided (" .. iterations .. " iterations)") end
-				while origSudoku[floor((loc)/9)+1][loc%9+1] ~= 0 do
-					loc = loc - 1
-				end
-			else
-				if isGuessValid(g, {x=x, y=y}, board) then
-					board[x][y] = g
-					loc = loc + 1
-					g = 0
-				else
-					board[x][y] = g
-				end
-			end
-		end
-	end
-end
-
 function Sudoku.setSolvedCell(self, r, c, n, tech)
 	self[r][c] = n
 	self.unsolvedCells = self.unsolvedCells - 1
@@ -330,22 +270,22 @@ function Sudoku.clearBadCandidates(self)
 	for r, c in self:iterateBoard("unsolved") do
 		-- check row
 		for _, cellVal in self:iterateRow(r, c, "solved") do
-			if self[r][c][cellVal] ~= 0 then
-				self[r][c][cellVal] = 0
+			if self[r][c][cellVal] then
+				self[r][c][cellVal] = false
 				didAnything = true
 			end
 		end
 		-- check col
 		for _, cellVal in self:iterateCol(r, c, "solved") do
-			if self[r][c][cellVal] ~= 0 then
-				self[r][c][cellVal] = 0
+			if self[r][c][cellVal] then
+				self[r][c][cellVal] = false
 				didAnything = true
 			end
 		end
 		-- check box
 		for _, _, cellVal in self:iterateSqr(r, c, "solved") do
-			if self[r][c][cellVal] ~= 0 then
-				self[r][c][cellVal] = 0
+			if self[r][c][cellVal] then
+				self[r][c][cellVal] = false
 				didAnything = true
 			end
 		end
@@ -359,7 +299,7 @@ function Sudoku.checkSolvedCells(self) -- naked single
 		local possibilities = 0
 		local index = 0
 		for i = 1, 9 do
-			if self[r][c][i] == 1 then
+			if self[r][c][i] then
 				possibilities = possibilities + 1
 				index = i
 			end
@@ -373,28 +313,28 @@ function Sudoku.checkSolvedCells(self) -- naked single
 end
 
 function Sudoku.hiddenSingles(self)
-	-- try to find some way of breaking out of the for n loop after the flag goes to false
+	-- try to find some way of breaking out of the for mainCands loop after the flag goes to false
 	local didAnything = false
 	local hiddenSinglesFound = {}
-	for r, c in self:iterateBoard("unsolved") do
-		for n, v in pairs(self[r][c]) do
-			if v == 1 then
+	for r, c, mainCands in self:iterateBoard("unsolved") do
+		for cand, isCandidate in pairs(mainCands) do
+			if isCandidate then
 				local uniqueIn = {row = true, col = true, box = true}
 				-- check row
 				for _, cellCandidates in self:iterateRow(r, c, "unsolved") do
-					if cellCandidates[n] == 1 then
+					if cellCandidates[cand] then
 						uniqueIn.row = false
 					end
 				end
 				-- check col
 				for _, cellCandidates in self:iterateCol(r, c, "unsolved") do
-					if cellCandidates[n] == 1 then
+					if cellCandidates[cand] then
 						uniqueIn.col = false
 					end
 				end
 				-- check box
 				for _, _, cellCandidates in self:iterateSqr(r, c, "unsolved") do
-					if cellCandidates[n] == 1 then
+					if cellCandidates[cand] then
 						uniqueIn.box = false
 					end
 				end
@@ -403,7 +343,7 @@ function Sudoku.hiddenSingles(self)
 					if b then uniqueInStr = uniqueInStr .. k .. " " end
 				end
 				if uniqueInStr ~= "" then
-					hiddenSinglesFound[#hiddenSinglesFound+1] = {r, c, n, "hidden single: unique in " .. uniqueInStr}
+					hiddenSinglesFound[#hiddenSinglesFound+1] = {r, c, cand, "hidden single: unique in " .. uniqueInStr}
 				end
 			end
 		end
@@ -475,6 +415,7 @@ local t0 = time()
 
 sudoku = Sudoku:new(BOARD)
 sudoku:smartSolve()
+-- Sudoku.printSudoku(brute(BOARD))
 local r, c = sudoku:isSolvedIncorrectly()
 if r then
 	print("Solved incorrectly at", r, c)
